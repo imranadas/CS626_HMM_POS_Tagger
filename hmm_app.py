@@ -21,6 +21,8 @@ def load_tagger(model_path='hmm_pos_tagger.pkl'):
     except Exception as e:
         st.error(f"Error loading model: {e}")
         return None
+    
+tagger = load_tagger()
 
 # Load JSON data from file
 def load_json(file_path):
@@ -31,6 +33,20 @@ def load_json(file_path):
     except Exception as e:
         st.error(f"Error loading {file_path}: {e}")
         return None
+
+@st.cache_data
+def load_test_data(json_file):
+    try:
+        with open(json_file, 'r') as f:
+            test_data = json.load(f)
+        st.success("Test data loaded successfully!")
+        return test_data
+    except Exception as e:
+        st.error(f"Error loading test data: {e}")
+        return []
+    
+def tokenize_sentences(test_data):
+    return [(word_tokenize(item['sentence']), item['tags']) for item in test_data]
 
 # Load and display confusion matrix image
 def display_confusion_matrix(image_path='confusion_matrix.png'):
@@ -57,9 +73,25 @@ def display_most_mismatched_tags(data):
         df_sorted = df.sort_values(by="Count", ascending=False)
         # Display sorted DataFrame
         st.table(df_sorted)  # Use st.table to display the sorted mismatches
+        
+def evaluate_accuracy(tagger, tokenized_data):
+    total_tokens = 0
+    correct_tokens = 0
 
-# Initialize the tagger
-tagger = load_tagger()
+    for sentence, true_tags in tokenized_data:
+        predicted_tags = tagger.viterbi(sentence)  # Predict using loaded model
+
+        # Compare predicted and true tags
+        for predicted_tag, true_tag in zip(predicted_tags, true_tags):
+            if predicted_tag == true_tag:
+                correct_tokens += 1
+            total_tokens += 1
+
+    # Calculate accuracy
+    accuracy = correct_tokens / total_tokens if total_tokens > 0 else 0
+    return accuracy
+
+
 
 st.title("HMM POS Tagger")
 
@@ -75,7 +107,7 @@ if tagger:
             tagged_sentence = tagger.viterbi(tokens)
             
             # Display the tagged sentence in tabular format
-            st.write("**Tagged Sentence:**")
+            st.write("Tagged Sentence:")
             tagged_df = pd.DataFrame(list(zip(tokens, tagged_sentence)), columns=['Word', 'Predicted Tag'])
             st.table(tagged_df)  # Use st.table to display the tagged sentence as a table
         else:
@@ -98,6 +130,21 @@ display_json_as_table(per_pos_metrics, "Per POS Performance Metrics")
 # Display Most Mismatched Tags
 most_mismatched_tags = load_json('most_mismatched_tags.json')
 display_most_mismatched_tags(most_mismatched_tags)
+
+if st.button("Analyze Test Set"):
+    if tagger:
+        # Load the test data
+        test_data = load_test_data('test_data.json')
+        
+        if test_data:
+            # Tokenize the test sentences
+            tokenized_test_data = tokenize_sentences(test_data)
+
+            # Evaluate the accuracy
+            accuracy = evaluate_accuracy(tagger, tokenized_test_data)
+            st.write(f"Model Accuracy on Test Data: {accuracy * 100:.2f}%")
+        else:
+            st.error("Test data could not be loaded.")
 
 st.write("---")
 st.info("Developed using HMM POS Tagger Model")
