@@ -1,0 +1,25 @@
+Transition Matrix Statistics:
+--------------------------------------------------
+Shape: (12, 12)
+
+Most likely transitions (probability > 0.3):
+   From    To  Probability
+2  PRON  VERB     0.706731
+1   ADJ  NOUN     0.653237
+6   DET  NOUN     0.626010
+0   PRT  VERB     0.623167
+4     X     X     0.509878
+3   ADP   DET     0.455461
+5   NUM  NOUN     0.381236
+
+Emission Matrix Statistics:
+--------------------------------------------------
+Shape: (12, 48734)
+
+Most characteristic words for each POS tag (highest probability):
+                 PRT            ADJ           NOUN          PRON            CONJ           ADV           ADP         VERB           .                X            NUM           DET
+Top 1     to (0.185)  other (0.013)   time (0.005)    he (0.095)     and (0.323)   not (0.043)    of (0.186)   is (0.043)   , (0.293)       de (0.001)    one (0.041)   the (0.371)
+Top 2    all (0.034)    new (0.012)    man (0.004)    it (0.087)     but (0.047)  when (0.022)    in (0.107)  was (0.042)   . (0.248)       la (0.001)    two (0.021)     a (0.123)
+Top 3  there (0.027)  first (0.008)     af (0.003)     i (0.051)      or (0.047)    so (0.014)    to (0.057)   be (0.027)  `` (0.044)       et (0.001)  three (0.009)   his (0.037)
+Top 4     up (0.021)   more (0.007)  years (0.003)  they (0.036)     nor (0.002)  only (0.013)   for (0.048)  had (0.022)  '' (0.044)  comedie (0.000)      1 (0.008)  this (0.027)
+Top 5    out (0.020)   many (0.007)    way (0.003)   you (0.033)  either (0.002)  then (0.013)  with (0.037)  are (0.019)   ; (0.028)       le (0.000)      2 (0.007)    an (0.020)
