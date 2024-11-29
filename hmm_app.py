@@ -57,6 +57,70 @@ def load_metrics_files():
         return metrics, None
     except Exception as e:
         return None, str(e)
+    
+def evaluate_test_data(tagger, test_data):
+    """Evaluate model performance on the provided test data"""
+    results = []
+    total_correct = 0
+    total_tags = 0
+    
+    for item in test_data:
+        # Tokenize sentence
+        tokens = word_tokenize(item['sentence'].lower())
+        
+        # Get model predictions
+        predicted_tags = tagger.viterbi_improved(tokens)
+        true_tags = item['tags']
+        
+        # Calculate accuracy for this sentence
+        correct_tags = sum(1 for pred, true in zip(predicted_tags, true_tags) if pred == true)
+        sentence_accuracy = correct_tags / len(true_tags)
+        
+        # Update totals
+        total_correct += correct_tags
+        total_tags += len(true_tags)
+        
+        # Store detailed results
+        results.append({
+            'sentence': item['sentence'],
+            'tokens': tokens,
+            'true_tags': true_tags,
+            'predicted_tags': predicted_tags,
+            'accuracy': sentence_accuracy
+        })
+    
+    overall_accuracy = total_correct / total_tags
+    return results, overall_accuracy
+
+def create_evaluation_charts(results):
+    """Create visualizations for test data evaluation results"""
+    # Sentence-level accuracy distribution
+    accuracies = [r['accuracy'] for r in results]
+    acc_hist = px.histogram(
+        x=accuracies,
+        nbins=20,
+        title="Distribution of Sentence-level Accuracies",
+        labels={'x': 'Accuracy', 'y': 'Count'},
+        height=400
+    )
+    
+    # Tag confusion analysis
+    tag_pairs = []
+    for result in results:
+        for true, pred in zip(result['true_tags'], result['predicted_tags']):
+            tag_pairs.append({'True': true, 'Predicted': pred})
+    
+    confusion_df = pd.DataFrame(tag_pairs)
+    confusion_matrix = pd.crosstab(confusion_df['True'], confusion_df['Predicted'])
+    
+    confusion_fig = px.imshow(
+        confusion_matrix,
+        title="Tag Confusion Matrix",
+        labels=dict(x="Predicted Tag", y="True Tag", color="Count"),
+        height=500
+    )
+    
+    return acc_hist, confusion_fig
 
 def create_performance_charts(metrics):
     """Create all performance visualization charts"""
@@ -209,7 +273,7 @@ def main():
         return
 
     # Main navigation
-    tab1, tab2, tab3 = st.tabs(["Tag Text", "Model Performance", "About"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Tag Text", "Model Performance", "Test Evaluation", "About"])
 
     # Tab 1: Text Tagging
     with tab1:
@@ -285,8 +349,69 @@ def main():
                 "application/json"
             )
 
-    # Tab 3: About
     with tab3:
+        st.header("Test Data Evaluation")
+        
+        # Load and evaluate test data
+        try:
+            with open('test_data.json', 'r') as f:
+                test_data = json.load(f)
+            
+            st.info(f"Loaded {len(test_data)} test sentences")
+            
+            if st.button("Run Evaluation"):
+                with st.spinner("Evaluating test data..."):
+                    results, overall_accuracy = evaluate_test_data(tagger, test_data)
+                    
+                    # Display overall accuracy
+                    st.metric(
+                        "Overall Accuracy",
+                        f"{overall_accuracy:.2%}",
+                        help="Percentage of correctly tagged words across all test sentences"
+                    )
+                    
+                    # Create and display charts
+                    acc_hist, confusion_fig = create_evaluation_charts(results)
+                    st.plotly_chart(acc_hist, use_container_width=True)
+                    st.plotly_chart(confusion_fig, use_container_width=True)
+                    
+                    # Display detailed results in an expandable section
+                    with st.expander("Detailed Results"):
+                        for i, result in enumerate(results, 1):
+                            st.markdown(f"**Sentence {i}** (Accuracy: {result['accuracy']:.2%})")
+                            st.write("Text:", result['sentence'])
+                            
+                            # Create comparison table
+                            comparison = pd.DataFrame({
+                                'Token': result['tokens'],
+                                'True Tag': result['true_tags'],
+                                'Predicted Tag': result['predicted_tags'],
+                                'Correct': [t == p for t, p in zip(result['true_tags'], result['predicted_tags'])]
+                            })
+                            st.dataframe(comparison.style.apply(lambda x: ['background-color: #90EE90' if v else 'background-color: #FFB6C6' 
+                                                                         for v in x['Correct']], subset=['Predicted Tag']))
+                            st.markdown("---")
+                    
+                    # Add download button for detailed results
+                    results_df = pd.DataFrame([{
+                        'Sentence': r['sentence'],
+                        'Accuracy': r['accuracy'],
+                        'True Tags': ' '.join(r['true_tags']),
+                        'Predicted Tags': ' '.join(r['predicted_tags'])
+                    } for r in results])
+                    
+                    st.download_button(
+                        "Download Detailed Results (CSV)",
+                        results_df.to_csv(index=False),
+                        "test_evaluation_results.csv",
+                        "text/csv"
+                    )
+                    
+        except Exception as e:
+            st.error(f"Error during evaluation: {str(e)}")
+    
+    # Tab 3: About
+    with tab4:
         st.header("About the Model")
         st.markdown("""
         ### HMM POS Tagger
