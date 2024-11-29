@@ -169,26 +169,43 @@ class HMMPOSTagger:
         status_text.text(f"Training completed in {timedelta(seconds=int(total_time))}!")
     
     def compute_probabilities(self):
-        """Compute transition and emission probabilities with smoothing"""
-        # Compute transition probabilities
+        """Compute transition and emission probabilities with Laplace smoothing"""
+        # Compute transition probabilities with Laplace smoothing
         for prev_tag in self.transition_probs:
-            total = sum(self.transition_probs[prev_tag].values()) + self.smoothing * (len(self.tags) + 1)
+            # Get total transitions from prev_tag and add smoothing for all possible next tags
+            total_transitions = sum(self.transition_probs[prev_tag].values())
+            total_smoothed = total_transitions + self.smoothing * (len(self.tags) + 1)  # +1 for <END> tag
+            
+            # Apply smoothing to each transition probability
             for tag in self.tags | {'<END>'}:
                 count = self.transition_probs[prev_tag][tag]
-                self.transition_probs[prev_tag][tag] = (count + self.smoothing) / total
+                # Laplace smoothing formula: (count + alpha) / (total + alpha * |V|)
+                self.transition_probs[prev_tag][tag] = (count + self.smoothing) / total_smoothed
         
-        # Compute emission probabilities
+        # Compute emission probabilities with Laplace smoothing
         for tag in self.emission_probs:
-            total = sum(self.emission_probs[tag].values()) + self.smoothing * len(self.vocabulary)
+            # Get total emissions for this tag and add smoothing for vocabulary
+            total_emissions = sum(self.emission_probs[tag].values())
+            total_smoothed = total_emissions + self.smoothing * len(self.vocabulary)
+            
+            # Apply smoothing to word emissions
             for word in self.vocabulary:
                 count = self.emission_probs[tag][word]
+                # Get suffix and prefix probabilities
                 suffix = word[-self.suffix_length:] if len(word) > self.suffix_length else word
                 prefix = word[:self.prefix_length] if len(word) > self.prefix_length else word
                 
-                suffix_prob = (self.suffix_dict[suffix][tag] + self.smoothing) / (self.tag_counts[tag] + self.smoothing * len(self.suffix_dict))
-                prefix_prob = (self.prefix_dict[prefix][tag] + self.smoothing) / (self.tag_counts[tag] + self.smoothing * len(self.prefix_dict))
+                # Apply Laplace smoothing to morphological features
+                suffix_total = self.tag_counts[tag] + self.smoothing * len(self.suffix_dict)
+                prefix_total = self.tag_counts[tag] + self.smoothing * len(self.prefix_dict)
                 
-                word_prob = (count + self.smoothing) / total
+                suffix_prob = (self.suffix_dict[suffix][tag] + self.smoothing) / suffix_total
+                prefix_prob = (self.prefix_dict[prefix][tag] + self.smoothing) / prefix_total
+                
+                # Apply Laplace smoothing to word emission probability
+                word_prob = (count + self.smoothing) / total_smoothed
+                
+                # Combine probabilities with weights
                 self.emission_probs[tag][word] = 0.7 * word_prob + 0.15 * suffix_prob + 0.15 * prefix_prob
     
     def viterbi_improved(self, sentence):
