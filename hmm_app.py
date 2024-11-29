@@ -255,7 +255,7 @@ def tag_text(tagger, text, explanations):
 
 def main():
     """Main application function"""
-    st.title("Enhanced HMM Part-of-Speech Tagger")
+    st.title("HMM Part-of-Speech Tagger")
     
     # Download NLTK resources
     with st.spinner("Loading resources..."):
