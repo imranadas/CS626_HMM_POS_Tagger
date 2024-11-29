@@ -2,149 +2,325 @@ import streamlit as st
 from hmm_training import HMMPOSTagger
 import nltk
 from nltk.tokenize import word_tokenize
-from PIL import Image
 import pandas as pd
+import plotly.graph_objects as go
+import plotly.express as px
+import numpy as np
 import json
+from pathlib import Path
+import matplotlib.pyplot as plt
+import seaborn as sns
 
-st.set_page_config(page_title="HMM POS App")
+# Page configuration
+st.set_page_config(
+    page_title="HMM POS Tagger",
+    page_icon="🏷️",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-# Download necessary NLTK resources
-nltk.download('punkt')
+# Cache decorators for resource loading
+@st.cache_resource
+def download_nltk_resources():
+    resources = ['punkt', 'averaged_perceptron_tagger', 'universal_tagset']
+    for resource in resources:
+        nltk.download(resource)
 
-# Load the trained model
 @st.cache_resource
 def load_tagger(model_path='hmm_pos_tagger.pkl'):
+    """Load the trained HMM tagger model"""
     try:
         tagger = HMMPOSTagger.load_model(model_path)
-        st.success("Model loaded successfully!")
-        return tagger
+        return tagger, None
     except Exception as e:
-        st.error(f"Error loading model: {e}")
-        return None
-    
-tagger = load_tagger()
+        return None, str(e)
 
-# Load JSON data from file
-def load_json(file_path):
+def load_metrics_files():
+    """Load all evaluation metrics files"""
+    metrics = {}
     try:
-        with open(file_path, 'r') as f:
-            data = json.load(f)
-        return data
-    except Exception as e:
-        st.error(f"Error loading {file_path}: {e}")
-        return None
-
-@st.cache_data
-def load_test_data(json_file):
-    try:
-        with open(json_file, 'r') as f:
-            test_data = json.load(f)
-        st.success("Test data loaded successfully!")
-        return test_data
-    except Exception as e:
-        st.error(f"Error loading test data: {e}")
-        return []
-    
-def tokenize_sentences(test_data):
-    return [(word_tokenize(item['sentence']), item['tags']) for item in test_data]
-
-# Load and display confusion matrix image
-def display_confusion_matrix(image_path='confusion_matrix.png'):
-    try:
-        image = Image.open(image_path)
-        st.image(image, caption="Confusion Matrix", use_column_width=True)
-    except Exception as e:
-        st.error(f"Error loading image: {e}")
-
-# Convert JSON data to DataFrame for display
-def display_json_as_table(json_data, title):
-    if json_data:
-        st.subheader(title)
-        df = pd.DataFrame.from_dict(json_data, orient='index')
-        st.table(df)
-
-# Display most mismatched tags in descending order
-def display_most_mismatched_tags(data):
-    if data:
-        st.subheader("Most Mismatched Tags")
-        # Convert to DataFrame
-        df = pd.DataFrame(data, columns=["Count", "True Tag", "Predicted Tag"])
-        # Sort DataFrame by count in descending order
-        df_sorted = df.sort_values(by="Count", ascending=False)
-        # Display sorted DataFrame
-        st.table(df_sorted)  # Use st.table to display the sorted mismatches
+        # Load overall metrics
+        with open('overall_performance_metrics.json', 'r') as f:
+            metrics['overall'] = json.load(f)
         
-def evaluate_accuracy(tagger, tokenized_data):
-    total_tokens = 0
-    correct_tokens = 0
-
-    for sentence, true_tags in tokenized_data:
-        predicted_tags = tagger.viterbi(sentence)  # Predict using loaded model
-
-        # Compare predicted and true tags
-        for predicted_tag, true_tag in zip(predicted_tags, true_tags):
-            if predicted_tag == true_tag:
-                correct_tokens += 1
-            total_tokens += 1
-
-    # Calculate accuracy
-    accuracy = correct_tokens / total_tokens if total_tokens > 0 else 0
-    return accuracy
-
-
-
-st.title("HMM POS Tagger")
-
-if tagger:
-    st.subheader("Enter a sentence to tag:")
-    user_input = st.text_area("Input Sentence", value="This is a test sentence.", height=100)
-
-    if st.button("Tag Sentence"):
-        if user_input.strip():
-            # Tokenize input sentence
-            tokens = word_tokenize(user_input.lower())
-            # Tag the sentence using the loaded model
-            tagged_sentence = tagger.viterbi(tokens)
-            
-            # Display the tagged sentence in tabular format
-            st.write("Tagged Sentence:")
-            tagged_df = pd.DataFrame(list(zip(tokens, tagged_sentence)), columns=['Word', 'Predicted Tag'])
-            st.table(tagged_df)  # Use st.table to display the tagged sentence as a table
-        else:
-            st.warning("Please enter a valid sentence.")
-
-st.write("---")
-st.subheader("Performance Metrics")
-
-# Display Confusion Matrix Image
-display_confusion_matrix()
-
-# Display Overall Performance Metrics
-overall_metrics = load_json('overall_performance_metrics.json')
-display_json_as_table(overall_metrics, "Overall Performance Metrics")
-
-# Display Per POS Performance Metrics
-per_pos_metrics = load_json('per_pos_performance_metrics.json')
-display_json_as_table(per_pos_metrics, "Per POS Performance Metrics")
-
-# Display Most Mismatched Tags
-most_mismatched_tags = load_json('most_mismatched_tags.json')
-display_most_mismatched_tags(most_mismatched_tags)
-
-if st.button("Analyze Test Set"):
-    if tagger:
-        # Load the test data
-        test_data = load_test_data('test_data.json')
+        # Load per-POS metrics
+        with open('per_pos_performance_metrics.json', 'r') as f:
+            metrics['per_pos'] = json.load(f)
         
-        if test_data:
-            # Tokenize the test sentences
-            tokenized_test_data = tokenize_sentences(test_data)
+        # Load mismatched tags
+        with open('most_mismatched_tags.json', 'r') as f:
+            metrics['mismatches'] = json.load(f)
+        
+        # Load confusion matrix
+        metrics['confusion_matrix'] = np.load('confusion_matrix.npy')
+        
+        return metrics, None
+    except Exception as e:
+        return None, str(e)
 
-            # Evaluate the accuracy
-            accuracy = evaluate_accuracy(tagger, tokenized_test_data)
-            st.write(f"Model Accuracy on Test Data: {accuracy * 100:.2f}%")
-        else:
-            st.error("Test data could not be loaded.")
+def create_performance_charts(metrics):
+    """Create all performance visualization charts"""
+    # Overall performance bar chart
+    overall_fig = go.Figure()
+    for metric, value in metrics['overall'].items():
+        overall_fig.add_trace(go.Bar(
+            name=metric,
+            x=[metric.capitalize()],
+            y=[value * 100],
+            text=[f"{value * 100:.2f}%"],
+            textposition='auto',
+        ))
+    overall_fig.update_layout(
+        title="Overall Model Performance",
+        yaxis_title="Percentage",
+        showlegend=False,
+        height=400
+    )
 
-st.write("---")
-st.info("Developed using HMM POS Tagger Model")
+    # Per-POS metrics chart
+    pos_data = []
+    for tag, tag_metrics in metrics['per_pos'].items():
+        for metric, value in tag_metrics.items():
+            pos_data.append({
+                'POS Tag': tag,
+                'Metric': metric.capitalize(),
+                'Value': value * 100
+            })
+    pos_fig = px.bar(
+        pd.DataFrame(pos_data),
+        x='POS Tag',
+        y='Value',
+        color='Metric',
+        barmode='group',
+        title='Per POS Tag Performance',
+        labels={'Value': 'Percentage'},
+        height=500
+    )
+
+    # Mismatches heatmap
+    mismatches_df = pd.DataFrame(metrics['mismatches'], 
+                                columns=['Count', 'True Tag', 'Predicted Tag'])
+    mismatches_fig = px.density_heatmap(
+        mismatches_df,
+        x='Predicted Tag',
+        y='True Tag',
+        z='Count',
+        title='Most Frequent Tag Mismatches',
+        labels={'Count': 'Frequency'},
+        height=400
+    )
+
+    # Confusion matrix
+    cm_fig = px.imshow(
+        metrics['confusion_matrix'],
+        labels=dict(x="Predicted Tag", y="True Tag", color="Count"),
+        title="Confusion Matrix"
+    )
+
+    return overall_fig, pos_fig, mismatches_fig, cm_fig
+
+def create_tag_table(tagged_df):
+    """Create an interactive table visualization of tagged results using Streamlit's color scheme"""
+    fig = go.Figure(data=[go.Table(
+        header=dict(
+            values=['Word', 'POS Tag', 'Explanation'],
+            fill_color='#0e1117',  # Streamlit's dark background
+            font=dict(
+                size=14,
+                color='white'
+            ),
+            align='left',
+            line_color='#1e1e1e'  # Subtle border color
+        ),
+        cells=dict(
+            values=[
+                tagged_df['Word'],
+                tagged_df['POS Tag'],
+                tagged_df['Explanation']
+            ],
+            fill_color=['#1e1e1e'],  # Slightly lighter than background
+            font=dict(
+                size=12,
+                color='#fafafa'  # Light text for contrast
+            ),
+            align='left',
+            line_color='#2d2d2d'  # Subtle border color
+        )
+    )])
+    
+    # Update layout to match Streamlit's container style
+    fig.update_layout(
+        margin=dict(l=0, r=0, t=0, b=0),
+        paper_bgcolor='#0e1117',  # Match Streamlit's background
+        plot_bgcolor='#0e1117',
+        height=400,  # Fixed height for better integration
+        font=dict(
+            family="'Source Sans Pro', -apple-system, 'system-ui', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', sans-serif"
+        )
+    )
+    
+    return fig
+
+def get_pos_explanations():
+    """Get detailed explanations for POS tags"""
+    return {
+        'NOUN': 'Nouns (people, places, things, concepts)',
+        'VERB': 'Verbs (actions, states, occurrences)',
+        'ADJ': 'Adjectives (describe nouns)',
+        'ADV': 'Adverbs (modify verbs, adjectives, other adverbs)',
+        'PRON': 'Pronouns (replace nouns)',
+        'DET': 'Determiners (articles, demonstratives)',
+        'ADP': 'Adpositions (prepositions, postpositions)',
+        'NUM': 'Numerals (numbers, quantities)',
+        'CONJ': 'Conjunctions (connect words/phrases)',
+        'PRT': 'Particles (function words, miscellaneous)',
+        '.': 'Punctuation marks',
+        'X': 'Other or unknown categories'
+    }
+
+def tag_text(tagger, text, explanations):
+    """Process text and return tagged DataFrame with explanations"""
+    tokens = word_tokenize(text.lower())
+    tags = tagger.viterbi_improved(tokens)
+    
+    return pd.DataFrame({
+        'Word': tokens,
+        'POS Tag': tags,
+        'Explanation': [explanations.get(tag, '') for tag in tags]
+    })
+
+def main():
+    """Main application function"""
+    st.title("Enhanced HMM Part-of-Speech Tagger")
+    
+    # Download NLTK resources
+    with st.spinner("Loading resources..."):
+        download_nltk_resources()
+
+    # Load model and metrics
+    tagger, tagger_error = load_tagger()
+    metrics, metrics_error = load_metrics_files()
+    
+    if tagger_error:
+        st.error(f"Error loading model: {tagger_error}")
+        return
+    if metrics_error:
+        st.error(f"Error loading metrics: {metrics_error}")
+        return
+
+    # Main navigation
+    tab1, tab2, tab3 = st.tabs(["Tag Text", "Model Performance", "About"])
+
+    # Tab 1: Text Tagging
+    with tab1:
+        st.header("Tag Text")
+        text_input = st.text_area(
+            "Enter text to tag",
+            value="The quick brown fox jumps over the lazy dog.",
+            height=100
+        )
+        
+        col1, col2 = st.columns([1, 2])
+        if st.button("Tag Text"):
+            if text_input.strip():
+                with st.spinner("Processing text..."):
+                    # Tag text
+                    explanations = get_pos_explanations()
+                    results_df = tag_text(tagger, text_input, explanations)
+                    
+                    # Display results
+                    st.subheader("Tagged Results")
+                    fig = create_tag_table(results_df)
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Add download button
+                    st.download_button(
+                        "Download Results (CSV)",
+                        results_df.to_csv(index=False),
+                        "tagged_text.csv",
+                        "text/csv"
+                    )
+            else:
+                st.warning("Please enter some text to tag.")
+
+    # Tab 2: Model Performance
+    with tab2:
+        st.header("Model Performance Analysis")
+        
+        # Create performance visualizations
+        overall_fig, pos_fig, mismatches_fig, cm_fig = create_performance_charts(metrics)
+        
+        # Display charts in organized layout
+        col1, col2 = st.columns(2)
+        with col1:
+            st.plotly_chart(overall_fig, use_container_width=True)
+        with col2:
+            st.plotly_chart(mismatches_fig, use_container_width=True)
+        
+        st.plotly_chart(pos_fig, use_container_width=True)
+        st.plotly_chart(cm_fig, use_container_width=True)
+        
+        # Add metrics download section
+        st.subheader("Download Metrics")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.download_button(
+                "Overall Metrics (JSON)",
+                json.dumps(metrics['overall'], indent=2),
+                "overall_metrics.json",
+                "application/json"
+            )
+        with col2:
+            st.download_button(
+                "Per-POS Metrics (JSON)",
+                json.dumps(metrics['per_pos'], indent=2),
+                "pos_metrics.json",
+                "application/json"
+            )
+        with col3:
+            st.download_button(
+                "Tag Mismatches (JSON)",
+                json.dumps(metrics['mismatches'], indent=2),
+                "mismatches.json",
+                "application/json"
+            )
+
+    # Tab 3: About
+    with tab3:
+        st.header("About the Model")
+        st.markdown("""
+        ### HMM POS Tagger
+        This is an enhanced Hidden Markov Model (HMM) for Part-of-Speech tagging, 
+        trained on the Brown corpus using the Universal Dependencies tagset.
+        
+        #### Key Features
+        - Morphological analysis for unknown words
+        - Enhanced emission probability calculation
+        - Improved rare word handling
+        - Feature-based tagging
+        - Laplace smoothing
+        
+        #### Universal POS Tags
+        """)
+        
+        # Display POS tag explanations in a clean format
+        explanations = get_pos_explanations()
+        for tag, explanation in explanations.items():
+            st.markdown(f"**{tag}**: {explanation}")
+        
+        st.markdown("""
+        #### Usage Tips
+        - Enter any English text in the "Tag Text" tab
+        - Choose different unknown word handling methods
+        - View detailed performance metrics in the "Model Performance" tab
+        - Download results and metrics for further analysis
+        
+        #### Model Performance
+        The model achieves high accuracy through:
+        - Sophisticated unknown word handling
+        - Context-aware tagging
+        - Robust probability estimation
+        """)
+
+if __name__ == "__main__":
+    main()

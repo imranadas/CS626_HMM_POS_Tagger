@@ -1,115 +1,183 @@
-# HMM POS Tagger
+# Enhanced HMM POS Tagger
 
-This project implements a Hidden Markov Model (HMM) for Part-of-Speech (POS) tagging using Python. It includes training the HMM model, evaluating it, and creating a Streamlit web application to interact with the model.
+This project implements an enhanced Hidden Markov Model (HMM) for Part-of-Speech (POS) tagging using Python. It features advanced unknown word handling, morphological analysis, and a comprehensive Streamlit web application for model interaction and performance visualization.
 
 ## Table of Contents
 
-1. [Prerequisites](#prerequisites)
-2. [Setup](#setup)
-3. [Running the Code](#running-the-code)
-4. [Using the Streamlit App](#using-the-streamlit-app)
-5. [File Descriptions](#file-descriptions)
+1. [Features](#features)
+2. [Prerequisites](#prerequisites)
+3. [Installation](#installation)
+4. [Usage](#usage)
+5. [Web Application](#web-application)
+6. [Model Details](#model-details)
+
+## Features
+
+- **Advanced POS Tagging**:
+  - Morphological analysis for unknown words
+  - Enhanced emission probability calculation
+  - Feature-based tagging system
+  - Improved rare word handling
+  - Laplace smoothing
+
+- **Comprehensive Web Interface**:
+  - Interactive text tagging
+  - Detailed performance visualizations
+  - Multiple unknown word handling methods
+  - Downloadable results and metrics
+
+- **Performance Analysis**:
+  - Confusion matrix visualization
+  - Per-POS tag performance metrics
+  - Most common tag mismatches
+  - Overall model evaluation metrics
 
 ## Prerequisites
-
-Ensure you have the following software installed:
 
 - Python 3.7 or later
 - pip (Python package installer)
 
-You will also need to install the following Python libraries:
-
-- `nltk`
-- `numpy`
-- `scikit-learn`
-- `matplotlib`
-- `seaborn`
-- `pandas`
-- `streamlit`
-- `altair`
-- `Pillow` (for image handling)
-
-You can install these libraries using pip:
-
+Required Python packages:
 ```bash
-pip install nltk numpy scikit-learn matplotlib seaborn pandas streamlit altair Pillow
+pip install -r requirements.txt
 ```
 
-## Setup
+Or install individually:
+```bash
+pip install nltk numpy scikit-learn matplotlib seaborn pandas streamlit plotly
+```
+
+## Installation
 
 1. **Clone the Repository**
-
-   Clone this repository to your local machine:
-
-   ```bash
-   git clone https://github.com/yourusername/hmm-pos-tagger.git
-   cd hmm-pos-tagger
-   ```
+```bash
+git clone https://github.com/yourusername/enhanced-hmm-pos-tagger.git
+cd enhanced-hmm-pos-tagger
+```
 
 2. **Download NLTK Resources**
+```python
+import nltk
+nltk.download(['brown', 'universal_tagset', 'punkt'])
+```
 
-   The code requires certain NLTK resources. They are downloaded automatically when running the code, but you can manually download them if needed:
-
-   ```python
-   import nltk
-   nltk.download('brown')
-   nltk.download('universal_tagset')
-   nltk.download('punkt')
-   ```
-
-## Running the Code
+## Usage
 
 1. **Train the Model**
+```bash
+python improved_training.py
+```
 
-   Run the `hmm_training.py` script to train the HMM POS tagger model and generate performance metrics:
+This generates:
+- Trained model (`hmm_pos_tagger.pkl`)
+- Performance metrics files:
+  - `confusion_matrix.npy`
+  - `confusion_matrix.png`
+  - `most_mismatched_tags.json`
+  - `overall_performance_metrics.json`
+  - `per_pos_performance_metrics.json`
 
-   ```bash
-   python hmm_training.py
-   ```
+2. **Launch the Web Application**
+```bash
+streamlit run improved_app.py
+```
 
-   This will create the following files:
+## Web Application
 
-   - `confusion_matrix.npy`
-   - `confusion_matrix.png`
-   - `most_mismatched_tags.json`
-   - `overall_performance_metrics.json`
-   - `per_pos_performance_metrics.json`
-   - `hmm_pos_tagger.pkl` (the trained model)
+The Streamlit application offers three main sections:
 
-2. **Run the Streamlit App**
+### 1. Tag Text
+- Input any English text
+- Choose unknown word handling method:
+  - Morphological Analysis
+  - Feature-based Analysis
+  - Most Common Tag
+- View POS tags with explanations
+- Download tagged results as CSV
 
-   Start the Streamlit application to interact with the trained model:
+### 2. Model Performance
+- Interactive visualizations:
+  - Overall performance metrics
+  - Per-POS tag performance
+  - Confusion matrix
+  - Tag mismatch patterns
+- Download performance metrics
 
-   ```bash
-   streamlit run app.py
-   ```
+### 3. About
+- Model information
+- POS tag explanations
+- Usage guidelines
+- Performance details
 
-   This will open a web browser with the Streamlit app where you can input sentences and view the tagged sentences, performance metrics, and visualizations.
+## Model Details
 
-## Using the Streamlit App
+### Training Data
+- Brown Corpus (NLTK)
+- Universal Dependencies POS tagset
 
-- **Tagging Sentences**:
-  Enter a sentence in the provided text area and click the "Tag Sentence" button to see the sentence tagged with POS tags.
+### Unknown Word Handling
+1. **Morphological Analysis**:
+   - Suffix/prefix patterns
+   - Word structure analysis
+   - Common linguistic patterns
 
-- **Viewing Performance Metrics**:
-  The app displays various performance metrics and visualizations:
-  - **Confusion Matrix**: An image showing the confusion matrix of the model.
-  - **Overall Performance Metrics**: JSON data showing average precision, recall, F1 score, etc.
-  - **Per POS Performance Metrics**: JSON data showing performance metrics for each POS tag.
-  - **Most Mismatched Tags**: A table showing the most frequently confused POS tag pairs, sorted by mismatch count.
+2. **Feature-based Analysis**:
+   - Capitalization
+   - Numerical content
+   - Special characters
+   - Common affixes
 
-## File Descriptions
+3. **Statistical Backup**:
+   - Emission probabilities
+   - Transition patterns
+   - Laplace smoothing
 
-- **`hmm_training.py`**: Script for training the HMM POS tagger, evaluating its performance, and saving the model and metrics.
-- **`app.py`**: Streamlit application for interacting with the trained model and displaying results.
-- **`confusion_matrix.npy`**: NumPy file containing the confusion matrix data.
-- **`confusion_matrix.png`**: Image file of the confusion matrix.
-- **`most_mismatched_tags.json`**: JSON file with the most mismatched POS tag pairs.
-- **`overall_performance_metrics.json`**: JSON file with overall performance metrics.
-- **`per_pos_performance_metrics.json`**: JSON file with performance metrics for each POS tag.
-- **`hmm_pos_tagger.pkl`**: Pickle file containing the trained HMM POS tagger model.
+### POS Tags
+- NOUN: Nouns
+- VERB: Verbs
+- ADJ: Adjectives
+- ADV: Adverbs
+- PRON: Pronouns
+- DET: Determiners
+- ADP: Adpositions
+- NUM: Numerals
+- CONJ: Conjunctions
+- PRT: Particles
+- X: Other categories
+- .: Punctuation
 
 ## Troubleshooting
 
-- **Model Loading Issues**: Ensure the `hmm_pos_tagger.pkl` file is correctly created and not corrupted.
-- **Library Errors**: Verify all required libraries are installed and up-to-date.
+### Common Issues
+
+1. **Model Loading Errors**
+   - Verify all files are present in the correct directory
+   - Check file permissions
+   - Ensure consistent Python versions
+
+2. **Memory Issues**
+   - Reduce batch size during training
+   - Close other memory-intensive applications
+   - Consider using a machine with more RAM
+
+3. **Visualization Errors**
+   - Update Plotly and Streamlit to latest versions
+   - Clear browser cache
+   - Check console for JavaScript errors
+
+### Support
+
+For issues and questions:
+- Open an issue on GitHub
+- Check existing issues for solutions
+- Provide clear reproduction steps
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Acknowledgments
+
+- NLTK Project for the Brown Corpus
+- Streamlit team for the web framework
+- Universal Dependencies project for the POS tagset
