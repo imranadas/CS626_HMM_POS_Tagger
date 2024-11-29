@@ -17,18 +17,8 @@ import re
 from pathlib import Path
 import pandas as pd
 
-# Set up logging configuration
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler('hmm_training.log')
-    ]
-)
-
 class HMMPOSTagger:
-    def __init__(self, smoothing=1e-5):
+    def __init__(self, smoothing=1.0):
         self.transition_probs = defaultdict(lambda: defaultdict(float))
         self.emission_probs = defaultdict(lambda: defaultdict(float))
         self.tag_counts = defaultdict(int)
@@ -36,35 +26,141 @@ class HMMPOSTagger:
         self.vocabulary = set()
         self.tags = set()
         self.smoothing = smoothing
-        self.unknown_word_token = '<UNK>'
-        self.rare_word_threshold = 5
-        self.suffix_length = 3
-        self.prefix_length = 2
-        self.suffix_dict = defaultdict(lambda: defaultdict(int))
-        self.prefix_dict = defaultdict(lambda: defaultdict(int))
+        self.word_to_idx = {}
+        self.tag_to_idx = {}
+        self.idx_to_tag = {}
+        self.transition_matrix = None
+        self.emission_matrix = None
         
-    def get_word_features(self, word):
-        """Extract features from a word to help with unknown word handling"""
-        features = []
-        word = word.lower()
+    def initialize_mappings(self, train_data):
+        """Initialize word and tag mappings"""
+        # Build vocabulary and tag sets
+        for sent in train_data:
+            for word, tag in sent:
+                self.vocabulary.add(word.lower())
+                self.tags.add(tag)
         
-        if any(c.isdigit() for c in word):
-            features.append('HAS_NUMBER')
-        if word[0].isupper():
-            features.append('CAPITALIZED')
-        if word.isupper():
-            features.append('ALL_CAPS')
-        if '-' in word:
-            features.append('HAS_HYPHEN')
-            
-        suffix = word[-self.suffix_length:] if len(word) > self.suffix_length else word
-        features.append(f'SUFFIX_{suffix}')
+        # Create mappings
+        self.word_to_idx = {word: idx for idx, word in enumerate(self.vocabulary)}
+        self.tag_to_idx = {tag: idx for idx, tag in enumerate(self.tags)}
+        self.idx_to_tag = {idx: tag for tag, idx in self.tag_to_idx.items()}
         
-        prefix = word[:self.prefix_length] if len(word) > self.prefix_length else word
-        features.append(f'PREFIX_{prefix}')
+    def compute_transition_matrix(self, train_data):
+        """Compute transition probability matrix with Laplace smoothing"""
+        num_tags = len(self.tags)
+        transition_counts = np.zeros((num_tags, num_tags))
+        tag_counts = np.zeros(num_tags)
         
-        return features
-
+        for sent in train_data:
+            for i in range(1, len(sent)):
+                prev_tag = self.tag_to_idx[sent[i - 1][1]]
+                curr_tag = self.tag_to_idx[sent[i][1]]
+                transition_counts[prev_tag, curr_tag] += 1
+                tag_counts[prev_tag] += 1
+        
+        # Apply Laplace smoothing
+        self.transition_matrix = np.log((transition_counts + self.smoothing) / 
+                                      (tag_counts[:, None] + self.smoothing * num_tags))
+    
+    def compute_emission_matrix(self, train_data):
+        """Compute emission probability matrix with Laplace smoothing"""
+        num_tags = len(self.tags)
+        num_words = len(self.vocabulary)
+        emission_counts = np.zeros((num_tags, num_words))
+        tag_counts = np.zeros(num_tags)
+        
+        for sent in train_data:
+            for word, tag in sent:
+                word_idx = self.word_to_idx[word.lower()]
+                tag_idx = self.tag_to_idx[tag]
+                emission_counts[tag_idx, word_idx] += 1
+                tag_counts[tag_idx] += 1
+        
+        # Apply Laplace smoothing
+        self.emission_matrix = np.log((emission_counts + self.smoothing) / 
+                                    (tag_counts[:, None] + self.smoothing * num_words))
+    
+    def train(self, tagged_sentences, progress_bar=None, status_text=None):
+        """Train the HMM POS tagger"""
+        if not tagged_sentences:
+            logging.warning("Training data is empty. Aborting training.")
+            return
+        
+        total_sentences = len(tagged_sentences)
+        start_time = time.time()
+        
+        if progress_bar is None:
+            progress_bar = st.progress(0)
+        if status_text is None:
+            status_text = st.empty()
+        
+        # Phase 1: Initialize mappings
+        status_text.text("Phase 1/3: Initializing mappings...")
+        self.initialize_mappings(tagged_sentences)
+        progress_bar.progress(0.33)
+        
+        # Phase 2: Compute transition probabilities
+        status_text.text("Phase 2/3: Computing transition probabilities...")
+        self.compute_transition_matrix(tagged_sentences)
+        progress_bar.progress(0.66)
+        
+        # Phase 3: Compute emission probabilities
+        status_text.text("Phase 3/3: Computing emission probabilities...")
+        self.compute_emission_matrix(tagged_sentences)
+        progress_bar.progress(1.0)
+        
+        total_time = time.time() - start_time
+        status_text.text(f"Training completed in {timedelta(seconds=int(total_time))}!")
+    
+    def viterbi_improved(self, sentence):
+        """Enhanced Viterbi algorithm implementation"""
+        sentence = [word.lower() for word in sentence]
+        num_tags = len(self.tags)
+        len_sent = len(sentence)
+        
+        # Initialize matrices
+        viterbi_matrix = np.full((num_tags, len_sent), -np.inf)
+        backpointer = np.zeros((num_tags, len_sent), dtype=int)
+        
+        # Initialize first column
+        word_idx = self.word_to_idx.get(sentence[0], -1)
+        if word_idx != -1:
+            for tag_idx in range(num_tags):
+                viterbi_matrix[tag_idx, 0] = self.emission_matrix[tag_idx, word_idx]
+        else:
+            # Handle unknown word
+            morph_tag = self.find_state_by_morphology(sentence[0])
+            morph_tag_idx = self.tag_to_idx.get(morph_tag)
+            if morph_tag_idx is not None:
+                viterbi_matrix[morph_tag_idx, 0] = 0  # Log probability of 1
+        
+        # Recursion
+        for t in range(1, len_sent):
+            word_idx = self.word_to_idx.get(sentence[t], -1)
+            for curr_tag in range(num_tags):
+                if word_idx != -1:
+                    emission_prob = self.emission_matrix[curr_tag, word_idx]
+                else:
+                    # Handle unknown word
+                    morph_tag = self.find_state_by_morphology(sentence[t])
+                    emission_prob = 0 if self.idx_to_tag[curr_tag] == morph_tag else -np.inf
+                
+                prob_transitions = viterbi_matrix[:, t - 1] + self.transition_matrix[:, curr_tag] + emission_prob
+                viterbi_matrix[curr_tag, t] = np.max(prob_transitions)
+                backpointer[curr_tag, t] = np.argmax(prob_transitions)
+        
+        # Termination
+        best_path = []
+        best_last_tag = np.argmax(viterbi_matrix[:, -1])
+        best_path.append(best_last_tag)
+        
+        # Backtrace
+        for t in range(len_sent - 1, 0, -1):
+            best_last_tag = backpointer[best_last_tag, t]
+            best_path.insert(0, best_last_tag)
+        
+        return [self.idx_to_tag[tag_idx] for tag_idx in best_path]
+    
     def find_state_by_morphology(self, word):
         """Use morphological cues to predict POS tag for unknown words"""
         if re.search(r'.*(ing|ed|es|ould)$', word.lower()):
@@ -87,198 +183,22 @@ class HMMPOSTagger:
             return 'PRON'
         elif re.search(r'(on|On|at|At|since|Since|For|for|Ago|ago|before|Before|till|Till|until|Until|by|By|Beside|beside|under|Under|below|Below|over|Over|above|Above|across|Across|Through|through|Into|into|towards|Towards|onto|Onto|from|From)$', word):
             return 'ADP'
-        elif re.search(r'(\'|\"|\.|\(|\)|\?|\[|\]|\:|\;)+',word):
+        elif re.search(r'(\'|\"|\.|\(|\)|\?|\[|\]|\:|\;)+', word):
             return '.'
         else:
             return 'NOUN'
-    
-    def train(self, tagged_sentences, progress_bar=None, status_text=None):
-        """Train the HMM POS tagger with progress visualization"""
-        if not tagged_sentences:
-            logging.warning("Training data is empty. Aborting training.")
-            return
-        
-        total_sentences = len(tagged_sentences)
-        start_time = time.time()
-        
-        if progress_bar is None:
-            progress_bar = st.progress(0)
-        if status_text is None:
-            status_text = st.empty()
-        
-        # Phase 1: Count word frequencies
-        status_text.text("Phase 1/3: Counting word frequencies...")
-        word_freq = defaultdict(int)
-        for i, sent in enumerate(tagged_sentences):
-            for word, _ in sent:
-                word = word.lower()
-                word_freq[word] += 1
-            
-            if i % 100 == 0:
-                progress = (i + 1) / total_sentences
-                progress_bar.progress(progress / 3)
-                
-        # Create rare word vocabulary
-        rare_words = {word for word, freq in word_freq.items() if freq < self.rare_word_threshold}
-        
-        # Phase 2: Collect transition and emission counts
-        status_text.text("Phase 2/3: Collecting transition and emission counts...")
-        for i, sent in enumerate(tagged_sentences):
-            prev_tag = '<START>'
-            for word, tag in sent:
-                word = word.lower()
-                
-                # Handle transition probabilities
-                self.transition_probs[prev_tag][tag] += 1
-                
-                # Handle emission probabilities
-                if word in rare_words:
-                    features = self.get_word_features(word)
-                    for feature in features:
-                        self.emission_probs[tag][feature] += 1
-                else:
-                    self.emission_probs[tag][word] += 1
-                
-                # Update counts and sets
-                self.tag_counts[tag] += 1
-                self.word_counts[word] += 1
-                self.vocabulary.add(word)
-                self.tags.add(tag)
-                
-                # Update suffix and prefix dictionaries
-                suffix = word[-self.suffix_length:] if len(word) > self.suffix_length else word
-                prefix = word[:self.prefix_length] if len(word) > self.prefix_length else word
-                self.suffix_dict[suffix][tag] += 1
-                self.prefix_dict[prefix][tag] += 1
-                
-                prev_tag = tag
-            
-            # Handle end of sentence
-            self.transition_probs[prev_tag]['<END>'] += 1
-            
-            if i % 100 == 0:
-                progress = (i + 1) / total_sentences
-                progress_bar.progress((1 + progress) / 3)
-        
-        # Phase 3: Compute probabilities
-        status_text.text("Phase 3/3: Computing probabilities...")
-        self.compute_probabilities()
-        progress_bar.progress(1.0)
-        
-        total_time = time.time() - start_time
-        status_text.text(f"Training completed in {timedelta(seconds=int(total_time))}!")
-    
-    def compute_probabilities(self):
-        """Compute transition and emission probabilities with Laplace smoothing"""
-        # Compute transition probabilities with Laplace smoothing
-        for prev_tag in self.transition_probs:
-            # Get total transitions from prev_tag and add smoothing for all possible next tags
-            total_transitions = sum(self.transition_probs[prev_tag].values())
-            total_smoothed = total_transitions + self.smoothing * (len(self.tags) + 1)  # +1 for <END> tag
-            
-            # Apply smoothing to each transition probability
-            for tag in self.tags | {'<END>'}:
-                count = self.transition_probs[prev_tag][tag]
-                # Laplace smoothing formula: (count + alpha) / (total + alpha * |V|)
-                self.transition_probs[prev_tag][tag] = (count + self.smoothing) / total_smoothed
-        
-        # Compute emission probabilities with Laplace smoothing
-        for tag in self.emission_probs:
-            # Get total emissions for this tag and add smoothing for vocabulary
-            total_emissions = sum(self.emission_probs[tag].values())
-            total_smoothed = total_emissions + self.smoothing * len(self.vocabulary)
-            
-            # Apply smoothing to word emissions
-            for word in self.vocabulary:
-                count = self.emission_probs[tag][word]
-                # Get suffix and prefix probabilities
-                suffix = word[-self.suffix_length:] if len(word) > self.suffix_length else word
-                prefix = word[:self.prefix_length] if len(word) > self.prefix_length else word
-                
-                # Apply Laplace smoothing to morphological features
-                suffix_total = self.tag_counts[tag] + self.smoothing * len(self.suffix_dict)
-                prefix_total = self.tag_counts[tag] + self.smoothing * len(self.prefix_dict)
-                
-                suffix_prob = (self.suffix_dict[suffix][tag] + self.smoothing) / suffix_total
-                prefix_prob = (self.prefix_dict[prefix][tag] + self.smoothing) / prefix_total
-                
-                # Apply Laplace smoothing to word emission probability
-                word_prob = (count + self.smoothing) / total_smoothed
-                
-                # Combine probabilities with weights
-                self.emission_probs[tag][word] = 0.7 * word_prob + 0.15 * suffix_prob + 0.15 * prefix_prob
-    
-    def viterbi_improved(self, sentence):
-        """Enhanced Viterbi algorithm with unknown word handling"""
-        V = [{}]
-        path = {}
-        tags = list(self.tags)
-        
-        # Process first word
-        word = sentence[0].lower()
-        features = self.get_word_features(word) if word not in self.vocabulary else []
-        
-        for tag in tags:
-            # Enhanced emission probability calculation
-            if word in self.vocabulary:
-                emission_prob = self.emission_probs[tag].get(word, self.smoothing)
-            else:
-                # For unknown words, combine morphological and feature-based probabilities
-                morph_tag = self.find_state_by_morphology(word)
-                if tag == morph_tag:
-                    emission_prob = 0.8
-                else:
-                    feature_probs = [self.emission_probs[tag].get(feature, 0) for feature in features]
-                    emission_prob = sum(feature_probs) / len(features) if features else self.smoothing
-            
-            V[0][tag] = self.transition_probs['<START>'][tag] * emission_prob
-            path[tag] = [tag]
-        
-        # Run Viterbi for remaining words
-        for t in range(1, len(sentence)):
-            V.append({})
-            new_path = {}
-            word = sentence[t].lower()
-            features = self.get_word_features(word) if word not in self.vocabulary else []
-            
-            for tag in tags:
-                if word in self.vocabulary:
-                    emission_prob = self.emission_probs[tag].get(word, self.smoothing)
-                else:
-                    morph_tag = self.find_state_by_morphology(word)
-                    if tag == morph_tag:
-                        emission_prob = 0.8
-                    else:
-                        feature_probs = [self.emission_probs[tag].get(feature, 0) for feature in features]
-                        emission_prob = sum(feature_probs) / len(features) if features else self.smoothing
-                
-                (prob, state) = max(
-                    (V[t-1][prev_tag] * self.transition_probs[prev_tag][tag] * emission_prob, prev_tag)
-                    for prev_tag in tags
-                )
-                V[t][tag] = prob
-                new_path[tag] = path[state] + [tag]
-            path = new_path
-        
-        # End case
-        n = len(sentence) - 1
-        (prob, state) = max((V[n][tag] * self.transition_probs[tag]['<END>'], tag) for tag in tags)
-        
-        return path[state]
 
     def save_model(self, filename):
         """Save model to file"""
         model_dict = {
-            'transition_probs': dict(self.transition_probs),
-            'emission_probs': dict(self.emission_probs),
-            'tag_counts': dict(self.tag_counts),
-            'word_counts': dict(self.word_counts),
+            'transition_matrix': self.transition_matrix,
+            'emission_matrix': self.emission_matrix,
             'vocabulary': list(self.vocabulary),
             'tags': list(self.tags),
-            'smoothing': self.smoothing,
-            'unknown_word_token': self.unknown_word_token,
-            'suffix_dict': dict(self.suffix_dict),
-            'prefix_dict': dict(self.prefix_dict)
+            'word_to_idx': self.word_to_idx,
+            'tag_to_idx': self.tag_to_idx,
+            'idx_to_tag': self.idx_to_tag,
+            'smoothing': self.smoothing
         }
         with open(filename, 'wb') as f:
             pickle.dump(model_dict, f)
@@ -290,15 +210,13 @@ class HMMPOSTagger:
         with open(filename, 'rb') as f:
             model_dict = pickle.load(f)
             tagger = HMMPOSTagger(smoothing=model_dict['smoothing'])
-            tagger.transition_probs = defaultdict(lambda: defaultdict(float), model_dict['transition_probs'])
-            tagger.emission_probs = defaultdict(lambda: defaultdict(float), model_dict['emission_probs'])
-            tagger.tag_counts = defaultdict(int, model_dict['tag_counts'])
-            tagger.word_counts = defaultdict(int, model_dict['word_counts'])
+            tagger.transition_matrix = model_dict['transition_matrix']
+            tagger.emission_matrix = model_dict['emission_matrix']
             tagger.vocabulary = set(model_dict['vocabulary'])
             tagger.tags = set(model_dict['tags'])
-            tagger.unknown_word_token = model_dict['unknown_word_token']
-            tagger.suffix_dict = defaultdict(lambda: defaultdict(int), model_dict['suffix_dict'])
-            tagger.prefix_dict = defaultdict(lambda: defaultdict(int), model_dict['prefix_dict'])
+            tagger.word_to_idx = model_dict['word_to_idx']
+            tagger.tag_to_idx = model_dict['tag_to_idx']
+            tagger.idx_to_tag = model_dict['idx_to_tag']
             return tagger
 
 def save_evaluation_results(y_true, y_pred, tags):
