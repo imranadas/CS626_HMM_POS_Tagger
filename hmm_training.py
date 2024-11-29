@@ -1,6 +1,5 @@
 import nltk
 from nltk.corpus import brown
-from nltk.tokenize import word_tokenize
 from collections import defaultdict
 import numpy as np
 from sklearn.metrics import precision_recall_fscore_support, confusion_matrix
@@ -12,9 +11,8 @@ from sklearn.model_selection import train_test_split
 import json
 import pickle
 import streamlit as st
-from datetime import datetime, timedelta
+from datetime import timedelta
 import re
-from pathlib import Path
 import pandas as pd
 
 class HMMPOSTagger:

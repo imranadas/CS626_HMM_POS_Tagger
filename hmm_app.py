@@ -7,9 +7,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 import numpy as np
 import json
-from pathlib import Path
-import matplotlib.pyplot as plt
-import seaborn as sns
+from collections import defaultdict
 
 # Page configuration
 st.set_page_config(
@@ -110,6 +108,21 @@ def evaluate_test_data(tagger, test_data):
     
     overall_accuracy = total_correct / total_tags if total_tags > 0 else 0
     return results, overall_accuracy, validation_errors
+
+def create_tag_comparison_table(tokens, true_tags, predicted_tags):
+    """Create a formatted comparison table for tags"""
+    df = pd.DataFrame({
+        'Token': tokens,
+        'True Tag': true_tags,
+        'Predicted Tag': predicted_tags
+    })
+    
+    # Create background colors based on tag matches
+    def highlight_matches(row):
+        color = '#90EE90' if row['True Tag'] == row['Predicted Tag'] else '#FFB6C6'
+        return [''] * 2 + [f'background-color: {color}']
+    
+    return df.style.apply(highlight_matches, axis=1)
 
 def create_evaluation_charts(results):
     """Create visualizations for test data evaluation results"""
@@ -406,7 +419,7 @@ def main():
                         st.metric(
                             "Overall Accuracy",
                             f"{overall_accuracy:.2%}",
-                            help="Percentage of correctly tagged words across all valid test sentences"
+                            help="Percentage of correctly tagged words across valid test sentences"
                         )
                         
                         # Create and display charts
@@ -422,16 +435,34 @@ def main():
                                 st.markdown(f"**Sentence {i}** (Accuracy: {result['accuracy']:.2%})")
                                 st.write("Text:", result['sentence'])
                                 
-                                # Create comparison table
-                                comparison = pd.DataFrame({
-                                    'Token': result['tokens'],
-                                    'True Tag': result['true_tags'],
-                                    'Predicted Tag': result['predicted_tags'],
-                                    'Correct': [t == p for t, p in zip(result['true_tags'], result['predicted_tags'])]
-                                })
-                                st.dataframe(comparison.style.apply(lambda x: ['background-color: #90EE90' if v else 'background-color: #FFB6C6' 
-                                                                             for v in x['Correct']], subset=['Predicted Tag']))
+                                # Create and display comparison table with fixed styling
+                                comparison_table = create_tag_comparison_table(
+                                    result['tokens'],
+                                    result['true_tags'],
+                                    result['predicted_tags']
+                                )
+                                st.dataframe(comparison_table)
                                 st.markdown("---")
+                        
+                        # Add summary statistics
+                        st.subheader("Tag-wise Performance")
+                        tag_stats = defaultdict(lambda: {'correct': 0, 'total': 0})
+                        for result in results:
+                            for true_tag, pred_tag in zip(result['true_tags'], result['predicted_tags']):
+                                tag_stats[true_tag]['total'] += 1
+                                if true_tag == pred_tag:
+                                    tag_stats[true_tag]['correct'] += 1
+                        
+                        tag_performance = []
+                        for tag, stats in tag_stats.items():
+                            accuracy = stats['correct'] / stats['total']
+                            tag_performance.append({
+                                'Tag': tag,
+                                'Accuracy': f"{accuracy:.2%}",
+                                'Correct/Total': f"{stats['correct']}/{stats['total']}"
+                            })
+                        
+                        st.table(pd.DataFrame(tag_performance).sort_values('Tag'))
                         
                         # Add download button for detailed results
                         results_df = pd.DataFrame([{
@@ -450,6 +481,7 @@ def main():
                         
         except Exception as e:
             st.error(f"Error during evaluation: {str(e)}")
+            st.exception(e)
     
     # Tab 3: About
     with tab4:
